@@ -34,7 +34,6 @@
                     <label for="login-password">Password</label>
                 </div>
                 <div class="remember-forgot">
-                    <label><input type="checkbox">Remember Me</label>
                     <a href="#" id="forgot-password-link">Forgot Password?</a>
                 </div>
                 <button type="submit" class="btn">Login</button>
@@ -84,23 +83,28 @@
         <div class="form-box reset">
             <h2>Reset password</h2>
             <form id="reset-form" action="#">
-                <div class="input-box">
-                    <span class="icon"><ion-icon name="mail-outline"></ion-icon></span>
-                    <input id="reset-email" name="email" type="email" placeholder=" " autocomplete="email" required>
-                    <label for="reset-email">Account email</label>
+                <div id="reset-request-fields">
+                    <div class="input-box">
+                        <span class="icon"><ion-icon name="mail-outline"></ion-icon></span>
+                        <input id="reset-email" name="email" type="email" placeholder=" " autocomplete="email" required>
+                        <label for="reset-email">Account email</label>
+                    </div>
+                    <p class="reset-note">We’ll email you a secure link to reset your password.</p>
                 </div>
-                <div class="input-box">
-                    <span class="icon toggle-password" role="button" tabindex="0" aria-label="Show password"><ion-icon name="eye-off-outline"></ion-icon></span>
-                    <input id="reset-password" name="password" type="password" placeholder=" " autocomplete="new-password" minlength="8" required>
-                    <label for="reset-password">New password</label>
+                <div id="reset-password-fields" hidden>
+                    <div class="input-box">
+                        <span class="icon toggle-password" role="button" tabindex="0" aria-label="Show password"><ion-icon name="eye-off-outline"></ion-icon></span>
+                        <input id="reset-password" name="password" type="password" placeholder=" " autocomplete="new-password" minlength="8">
+                        <label for="reset-password">New password</label>
+                    </div>
+                    <div class="input-box">
+                        <span class="icon toggle-password" role="button" tabindex="0" aria-label="Show password"><ion-icon name="eye-off-outline"></ion-icon></span>
+                        <input id="confirm-password" name="confirmPassword" type="password" placeholder=" " autocomplete="new-password" minlength="8">
+                        <label for="confirm-password">Confirm new password</label>
+                    </div>
+                    <p class="reset-note">Choose a new password for your account.</p>
                 </div>
-                <div class="input-box">
-                    <span class="icon toggle-password" role="button" tabindex="0" aria-label="Show password"><ion-icon name="eye-off-outline"></ion-icon></span>
-                    <input id="confirm-password" name="confirmPassword" type="password" placeholder=" " autocomplete="new-password" minlength="8" required>
-                    <label for="confirm-password">Confirm new password</label>
-                </div>
-                <p class="reset-note">Demo only: this changes the password saved in this browser; no email verification is sent.</p>
-                <button type="submit" class="btn">Update password</button>
+                <button type="submit" class="btn">Send reset link</button>
                 <p class="auth-feedback" id="reset-feedback" role="status" aria-live="polite"></p>
                 <div class="login-register">
                     <p>Remembered it? <a href="#" id="reset-login-link">Back to login</a></p>
@@ -109,6 +113,9 @@
         </div>
     </div>
 
+    <script src="supabase-config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-client.js"></script>
     <script src="script.js"></script>
     <script type="module" src="https://unpkg.com/ionicons@8.0.13/dist/ionicons/ionicons.esm.js"></script>
     <script nomodule src="https://unpkg.com/ionicons@8.0.13/dist/ionicons/ionicons.js"></script>

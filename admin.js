@@ -1,4 +1,3 @@
-const adminEmail = 'admin123@gmail.com';
 const sessionKey = 'monitor-current-user';
 
 const loadCurrentUser = () => {
@@ -9,15 +8,9 @@ const loadCurrentUser = () => {
     }
 };
 
-const currentUser = loadCurrentUser();
+const currentUser = loadCurrentUser() || {};
 
-if (!currentUser?.email) {
-    window.location.replace('index.html');
-} else if (currentUser.email.trim().toLowerCase() !== adminEmail) {
-    window.location.replace('app.html');
-} else {
-    const accountStorageKey = 'monitor-accounts';
-    const reportStorageKey = 'monitor-issue-reports';
+{
     const pendingList = document.querySelector('#pending-list');
     const emptyPending = document.querySelector('#empty-pending');
     const ongoingList = document.querySelector('#ongoing-list');
@@ -26,8 +19,6 @@ if (!currentUser?.email) {
     const emptyHistory = document.querySelector('#empty-history');
     const adminFeedback = document.querySelector('#admin-feedback');
     const adminTabs = [...document.querySelectorAll('[role="tab"]')];
-
-    document.querySelector('#admin-name').textContent = currentUser.username || 'Admin';
 
     const activateAdminTab = activeTab => {
         adminTabs.forEach(tab => {
@@ -60,55 +51,83 @@ if (!currentUser?.email) {
         });
     });
 
-    const loadStoredItems = key => {
+    const fromDatabaseReport = report => ({
+        id: report.id,
+        type: report.type,
+        area: report.area,
+        description: report.description,
+        photoDataUrl: report.photo_data_url,
+        createdAt: report.created_at,
+        status: report.status,
+        confirmedAt: report.confirmed_at,
+        scheduledAt: report.scheduled_at,
+        resolvedAt: report.resolved_at,
+        archivedAt: report.archived_at
+    });
+
+    let reports = [];
+    let isRefreshingReports = false;
+    const refreshReports = async () => {
+        if (isRefreshingReports || !currentUser.id) {
+            return;
+        }
+        isRefreshingReports = true;
         try {
-            const items = JSON.parse(localStorage.getItem(key) || '[]');
-            return Array.isArray(items) ? items : [];
-        } catch {
-            return [];
+            const { data, error } = await window.monitorSupabase
+                .from('reports')
+                .select('*')
+                .order('created_at', { ascending: false });
+            if (error) {
+                throw error;
+            }
+            reports = data.map(fromDatabaseReport);
+            renderReports();
+        } finally {
+            isRefreshingReports = false;
         }
     };
-
-    const loadReports = () => {
-        const reports = loadStoredItems(reportStorageKey);
-        let needsSave = false;
-        reports.forEach((report, index) => {
-            if (!report.id) {
-                report.id = `legacy-${report.createdAt || 'unknown'}-${index}`;
-                needsSave = true;
-            }
-        });
-        if (needsSave) {
-            try {
-                localStorage.setItem(reportStorageKey, JSON.stringify(reports));
-            } catch {
-                return reports;
-            }
-        }
-        return reports;
-    };
-
-    let reports = loadReports();
     const isPending = report => report.status === 'Pending' || report.status === 'Open';
     const isOngoing = report => report.status === 'On-going' || report.status === 'Ongoing' || report.status === 'Confirmed';
     const isResolved = report => report.status === 'Resolved' || report.status === 'Solved';
     const isArchived = report => report.status === 'Archived';
 
-    const saveReportChanges = (reportId, changes, successMessage) => {
-        const report = reports.find(savedReport => savedReport.id === reportId);
-        if (!report) {
-            return;
+    const saveReportChanges = async (reportId, changes, successMessage) => {
+        const databaseChanges = {};
+        if ('status' in changes) {
+            databaseChanges.status = changes.status;
+        }
+        if ('confirmedAt' in changes) {
+            databaseChanges.confirmed_at = changes.confirmedAt;
+        }
+        if ('scheduledAt' in changes) {
+            databaseChanges.scheduled_at = changes.scheduledAt;
+        }
+        if ('resolvedAt' in changes) {
+            databaseChanges.resolved_at = changes.resolvedAt;
+        }
+        if ('archivedAt' in changes) {
+            databaseChanges.archived_at = changes.archivedAt;
         }
 
-        const previousReport = { ...report };
-        Object.assign(report, changes);
         try {
-            localStorage.setItem(reportStorageKey, JSON.stringify(reports));
+            const { data, error } = await window.monitorSupabase
+                .from('reports')
+                .update(databaseChanges)
+                .eq('id', reportId)
+                .select('*')
+                .single();
+            if (error) {
+                throw error;
+            }
+
+            const reportIndex = reports.findIndex(report => report.id === reportId);
+            if (reportIndex !== -1) {
+                reports[reportIndex] = fromDatabaseReport(data);
+            }
             adminFeedback.textContent = successMessage;
             renderReports();
-        } catch {
-            reports[reports.indexOf(report)] = previousReport;
-            adminFeedback.textContent = 'Could not save this update in the browser.';
+        } catch (error) {
+            adminFeedback.textContent = `Could not save this report update: ${error.message}`;
         }
     };
 
@@ -332,9 +351,15 @@ if (!currentUser?.email) {
         historyReports.forEach(report => historyList.append(createReportItem(report, isArchived(report) ? 'Removed' : 'Resolved')));
     };
 
-    const renderAccounts = () => {
+    const renderAccounts = async () => {
         const accountList = document.querySelector('#account-list');
-        const accounts = loadStoredItems(accountStorageKey);
+        const { data: accounts, error } = await window.monitorSupabase
+            .from('profiles')
+            .select('username, email, created_at')
+            .order('created_at', { ascending: false });
+        if (error) {
+            throw error;
+        }
         accountList.replaceChildren();
 
         accounts.forEach(account => {
@@ -352,7 +377,7 @@ if (!currentUser?.email) {
 
             const created = document.createElement('time');
             created.className = 'account-created';
-            const createdDate = account.createdAt ? new Date(account.createdAt) : null;
+            const createdDate = account.created_at ? new Date(account.created_at) : null;
             if (createdDate && !Number.isNaN(createdDate.getTime())) {
                 created.dateTime = createdDate.toISOString();
                 created.textContent = createdDate.toLocaleString();
@@ -368,18 +393,63 @@ if (!currentUser?.email) {
         document.querySelector('#account-count').textContent = `${accounts.length} ${accounts.length === 1 ? 'account' : 'accounts'}`;
     };
 
-    document.querySelector('#logout-button').addEventListener('click', () => {
-        sessionStorage.removeItem(sessionKey);
-        window.location.assign('index.html');
-    });
-
-    window.addEventListener('storage', event => {
-        if (event.key === reportStorageKey) {
-            reports = loadReports();
-            renderReports();
+    document.querySelector('#logout-button').addEventListener('click', async () => {
+        try {
+            const { error } = await window.monitorSupabase.auth.signOut();
+            if (error) {
+                throw error;
+            }
+            sessionStorage.removeItem(sessionKey);
+            window.location.assign('index.html');
+        } catch (error) {
+            adminFeedback.textContent = `Could not log out: ${error.message}`;
         }
     });
 
+    const initializeAdmin = async () => {
+        if (!window.monitorSupabase) {
+            throw new Error(window.monitorSupabaseError || 'Could not connect to shared storage.');
+        }
+        const { data: { user }, error: authError } = await window.monitorSupabase.auth.getUser();
+        if (authError) {
+            throw authError;
+        }
+        if (!user) {
+            sessionStorage.removeItem(sessionKey);
+            window.location.replace('index.html');
+            return;
+        }
+
+        const { data: profile, error: profileError } = await window.monitorSupabase
+            .from('profiles')
+            .select('username, role')
+            .eq('id', user.id)
+            .single();
+        if (profileError) {
+            throw profileError;
+        }
+        if (profile.role !== 'admin') {
+            window.location.replace('app.html');
+            return;
+        }
+
+        currentUser.id = user.id;
+        document.querySelector('#admin-name').textContent = profile.username || 'Admin';
+        await Promise.all([refreshReports(), renderAccounts()]);
+    };
+
     renderReports();
-    renderAccounts();
+    initializeAdmin().catch(error => {
+        adminFeedback.textContent = `Could not load shared admin data: ${error.message}`;
+    });
+    window.addEventListener('focus', () => refreshReports().catch(error => {
+        adminFeedback.textContent = `Could not refresh reports: ${error.message}`;
+    }));
+    window.setInterval(() => {
+        if (!document.hidden) {
+            refreshReports().catch(error => {
+                adminFeedback.textContent = `Could not refresh reports: ${error.message}`;
+            });
+        }
+    }, 20000);
 }

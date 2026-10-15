@@ -193,3 +193,105 @@
 		text-align: left;
 	}
 }
+
+.navigation .admin-tabs {
+	border-color: rgba(207, 168, 255, .28);
+	border-radius: 10px;
+	background: rgba(14, 19, 48, .72);
+}
+
+.admin-tab {
+	border-radius: 7px;
+	transition: background .2s ease, color .2s ease;
+}
+
+.admin-tab:hover {
+	background: rgba(192, 141, 255, .13);
+	color: #f1d9ff;
+}
+
+.admin-tab[aria-selected="true"] {
+	background: linear-gradient(110deg, rgba(161, 92, 255, .32), rgba(255, 98, 178, .23));
+	color: #f0c4ff;
+}
+
+.admin-tab:focus-visible,
+.confirm-report:focus-visible,
+.remove-report:focus-visible,
+.save-schedule:focus-visible {
+	outline-color: #d68bff;
+}
+
+.admin-feedback {
+	border-color: rgba(204, 119, 255, .5);
+	border-left-color: #d68bff;
+	border-radius: 10px;
+	background: #241d48;
+	box-shadow: 0 12px 30px rgba(8, 7, 28, .45);
+}
+
+.confirm-report,
+.save-schedule {
+	border-color: rgba(91, 225, 178, .52);
+	border-radius: 7px;
+	background: rgba(61, 205, 157, .14);
+	color: #94f0ce;
+}
+
+.confirm-report:hover,
+.save-schedule:hover {
+	background: rgba(61, 205, 157, .25);
+}
+
+.remove-report {
+	border-color: rgba(255, 146, 123, .52);
+	border-radius: 7px;
+	background: rgba(255, 111, 112, .13);
+	color: #ffb1a2;
+}
+
+.remove-report:hover {
+	background: rgba(255, 111, 112, .24);
+}
+
+.action-confirmed {
+	color: #91f0cd;
+}
+
+.repair-schedule-form input {
+	border-color: rgba(184, 168, 225, .28);
+	border-radius: 7px;
+	background: rgba(12, 20, 46, .72);
+}
+
+.repair-schedule-form input:focus {
+	border-color: #d68bff;
+	outline: none;
+	box-shadow: 0 0 0 3px rgba(204, 119, 255, .2);
+}
+
+.account-item {
+	border-top-color: rgba(199, 176, 231, .16);
+}
+
+.confirm-report,
+.remove-report,
+.save-schedule,
+.repair-schedule-form input {
+	transition:
+		background-color .25s ease,
+		border-color .25s ease,
+		box-shadow .25s ease,
+		color .25s ease,
+		transform .25s ease;
+}
+
+.confirm-report:hover,
+.remove-report:hover,
+.save-schedule:hover {
+	transform: translateY(-1px);
+}
+
+.account-item {
+	transition: border-color .25s ease, background-color .25s ease;
+}

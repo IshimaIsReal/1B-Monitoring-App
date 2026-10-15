@@ -1,5 +1,4 @@
 const sessionKey = 'monitor-current-user';
-const adminEmail = 'admin123@gmail.com';
 
 const loadCurrentUser = () => {
     try {
@@ -9,13 +8,9 @@ const loadCurrentUser = () => {
     }
 };
 
-const currentUser = loadCurrentUser();
+const currentUser = loadCurrentUser() || {};
 
-if (!currentUser?.email) {
-    window.location.replace('index.html');
-} else if (currentUser.email.trim().toLowerCase() === adminEmail) {
-    window.location.replace('admin.html');
-} else {
+{
     const dashboardName = document.querySelector('#dashboard-name');
     const reportForm = document.querySelector('#report-form');
     const issueArea = document.querySelector('#issue-area');
@@ -30,12 +25,10 @@ if (!currentUser?.email) {
     const photoPreviewImage = document.querySelector('#photo-preview-image');
     const photoStatus = document.querySelector('#photo-status');
     const userTabs = [...document.querySelectorAll('[role="tab"]')];
-    const reportStorageKey = 'monitor-issue-reports';
     const maxPhotoSize = 5 * 1024 * 1024;
     const maxStoredPhotoSize = 512 * 1024;
-    const reportId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    dashboardName.textContent = currentUser.username || currentUser.email.split('@')[0];
+    dashboardName.textContent = currentUser.username || currentUser.email?.split('@')[0] || 'there';
 
     const activateUserTab = activeTab => {
         userTabs.forEach(tab => {
@@ -68,16 +61,41 @@ if (!currentUser?.email) {
         });
     });
 
-    const loadReports = () => {
+    const fromDatabaseReport = report => ({
+        id: report.id,
+        type: report.type,
+        area: report.area,
+        description: report.description,
+        photoDataUrl: report.photo_data_url,
+        createdAt: report.created_at,
+        status: report.status,
+        confirmedAt: report.confirmed_at,
+        scheduledAt: report.scheduled_at,
+        resolvedAt: report.resolved_at,
+        archivedAt: report.archived_at
+    });
+
+    let reports = [];
+    let isRefreshingReports = false;
+    const refreshReports = async () => {
+        if (isRefreshingReports || !currentUser.id) {
+            return;
+        }
+        isRefreshingReports = true;
         try {
-            const savedReports = JSON.parse(localStorage.getItem(reportStorageKey) || '[]');
-            return Array.isArray(savedReports) ? savedReports : [];
-        } catch {
-            return [];
+            const { data, error } = await window.monitorSupabase
+                .from('reports')
+                .select('*')
+                .order('created_at', { ascending: false });
+            if (error) {
+                throw error;
+            }
+            reports = data.map(fromDatabaseReport);
+            renderReports();
+        } finally {
+            isRefreshingReports = false;
         }
     };
-
-    let reports = loadReports();
     const isPendingReport = report => report.status === 'Pending' || report.status === 'Open';
     const isOngoingReport = report => report.status === 'On-going' || report.status === 'Ongoing' || report.status === 'Confirmed';
     const isHistoryReport = report => ['Resolved', 'Solved', 'Archived'].includes(report.status);
@@ -114,7 +132,7 @@ if (!currentUser?.email) {
             bitmap.close();
         }
 
-        throw new Error('Could not reduce this photo enough for browser storage. Choose a smaller image.');
+        throw new Error('Could not reduce this photo enough for shared storage. Choose a smaller image.');
     };
 
     const validatePhoto = file => {
@@ -254,20 +272,24 @@ if (!currentUser?.email) {
         document.querySelector('#history-count').textContent = `${historyReports.length} items`;
     };
 
-    document.querySelector('#logout-button').addEventListener('click', () => {
-        sessionStorage.removeItem(sessionKey);
-        window.location.assign('index.html');
-    });
-
-    window.addEventListener('storage', event => {
-        if (event.key === reportStorageKey) {
-            reports = loadReports();
-            renderReports();
+    document.querySelector('#logout-button').addEventListener('click', async () => {
+        try {
+            const { error } = await window.monitorSupabase.auth.signOut();
+            if (error) {
+                throw error;
+            }
+            sessionStorage.removeItem(sessionKey);
+            window.location.assign('index.html');
+        } catch (error) {
+            reportFeedback.textContent = `Could not log out: ${error.message}`;
         }
     });
 
     const locateButton = document.querySelector('#locate-button');
     const submitReportButton = reportForm.querySelector('[type="submit"]');
+    let isDashboardReady = false;
+    let isSubmittingReport = false;
+    submitReportButton.disabled = true;
     let selectedPhotoDataUrl = '';
 
     photoInput.addEventListener('change', async () => {
@@ -297,7 +319,7 @@ if (!currentUser?.email) {
             selectedPhotoDataUrl = '';
             photoStatus.textContent = error.message;
         } finally {
-            submitReportButton.disabled = false;
+            submitReportButton.disabled = !isDashboardReady || isSubmittingReport;
         }
     });
 
@@ -363,6 +385,10 @@ if (!currentUser?.email) {
     reportForm.addEventListener('submit', async event => {
         event.preventDefault();
         reportFeedback.textContent = '';
+        if (!isDashboardReady) {
+            reportFeedback.textContent = 'Wait for shared storage to finish connecting before submitting.';
+            return;
+        }
         const photoFile = photoInput.files[0];
         const validationMessage = validatePhoto(photoFile);
         if (validationMessage) {
@@ -376,34 +402,89 @@ if (!currentUser?.email) {
         }
 
         const formData = new FormData(reportForm);
-        const report = {
-            id: reportId(),
-            type: formData.get('type'),
-            area: formData.get('area').trim(),
-            description: formData.get('description').trim(),
-            photoDataUrl: selectedPhotoDataUrl,
-            createdAt: new Date().toISOString(),
-            status: 'Pending'
-        };
-
-        reports.unshift(report);
+        isSubmittingReport = true;
+        submitReportButton.disabled = true;
+        photoInput.disabled = true;
         try {
-            localStorage.setItem(reportStorageKey, JSON.stringify(reports));
-        } catch {
-            reportFeedback.textContent = 'Report added, but could not be saved in this browser.';
-        }
+            const { data, error } = await window.monitorSupabase
+                .from('reports')
+                .insert({
+                    user_id: currentUser.id,
+                    type: formData.get('type'),
+                    area: formData.get('area').trim(),
+                    description: formData.get('description').trim(),
+                    photo_data_url: selectedPhotoDataUrl
+                })
+                .select('*')
+                .single();
+            if (error) {
+                throw error;
+            }
 
-        renderReports();
-        reportForm.reset();
-        selectedPhotoDataUrl = '';
-        photoPreview.hidden = true;
-        photoPreviewImage.removeAttribute('src');
-        photoStatus.textContent = '';
-        locationStatus.textContent = '';
-        if (!reportFeedback.textContent) {
-            reportFeedback.textContent = 'Your report has been added.';
+            reports.unshift(fromDatabaseReport(data));
+            renderReports();
+            reportForm.reset();
+            selectedPhotoDataUrl = '';
+            photoPreview.hidden = true;
+            photoPreviewImage.removeAttribute('src');
+            photoStatus.textContent = '';
+            locationStatus.textContent = '';
+            reportFeedback.textContent = 'Your report has been saved and shared.';
+        } catch (error) {
+            reportFeedback.textContent = `Could not save your report: ${error.message}`;
+        } finally {
+            isSubmittingReport = false;
+            photoInput.disabled = false;
+            submitReportButton.disabled = !isDashboardReady;
         }
     });
 
-    renderReports();
+    const initializeDashboard = async () => {
+        if (!window.monitorSupabase) {
+            throw new Error(window.monitorSupabaseError || 'Could not connect to shared storage.');
+        }
+        const { data: { user }, error: authError } = await window.monitorSupabase.auth.getUser();
+        if (authError) {
+            throw authError;
+        }
+        if (!user) {
+            sessionStorage.removeItem(sessionKey);
+            window.location.replace('index.html');
+            return;
+        }
+
+        const { data: profile, error: profileError } = await window.monitorSupabase
+            .from('profiles')
+            .select('username, role')
+            .eq('id', user.id)
+            .single();
+        if (profileError) {
+            throw profileError;
+        }
+        if (profile.role === 'admin') {
+            window.location.replace('admin.html');
+            return;
+        }
+
+        currentUser.id = user.id;
+        currentUser.email = user.email;
+        dashboardName.textContent = profile.username || user.email.split('@')[0];
+        await refreshReports();
+        isDashboardReady = true;
+        submitReportButton.disabled = false;
+    };
+
+    initializeDashboard().catch(error => {
+        reportFeedback.textContent = `Could not load shared reports: ${error.message}`;
+    });
+    window.addEventListener('focus', () => refreshReports().catch(error => {
+        reportFeedback.textContent = `Could not refresh reports: ${error.message}`;
+    }));
+    window.setInterval(() => {
+        if (!document.hidden) {
+            refreshReports().catch(error => {
+                reportFeedback.textContent = `Could not refresh reports: ${error.message}`;
+            });
+        }
+    }, 20000);
 }

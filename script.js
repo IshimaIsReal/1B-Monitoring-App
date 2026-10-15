@@ -12,43 +12,44 @@ const registerFeedback = document.querySelector('#register-feedback');
 const forgotPasswordLink = document.querySelector('#forgot-password-link');
 const resetForm = document.querySelector('#reset-form');
 const resetEmail = document.querySelector('#reset-email');
+const resetPassword = document.querySelector('#reset-password');
+const confirmPassword = document.querySelector('#confirm-password');
+const resetRequestFields = document.querySelector('#reset-request-fields');
+const resetPasswordFields = document.querySelector('#reset-password-fields');
 const resetFeedback = document.querySelector('#reset-feedback');
 const resetLoginLink = document.querySelector('#reset-login-link');
-const accountStorageKey = 'monitor-accounts';
-const adminEmail = 'admin123@gmail.com';
-const adminDefaultPassword = 'Admin123!';
-
-const loadAccounts = () => {
-    try {
-        const savedAccounts = JSON.parse(localStorage.getItem(accountStorageKey) || '[]');
-        return Array.isArray(savedAccounts) ? savedAccounts : [];
-    } catch {
-        return [];
-    }
-};
-
-const hashPassword = async password => {
-    if (!window.crypto?.subtle) {
-        throw new Error('Secure password storage is unavailable in this browser. Open this page through localhost or HTTPS.');
-    }
-
-    const passwordBytes = new TextEncoder().encode(password);
-    const digest = await window.crypto.subtle.digest('SHA-256', passwordBytes);
-    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
-};
+const resetSubmitButton = resetForm.querySelector('[type="submit"]');
 
 const setAuthFeedback = (element, message, state = 'error') => {
     element.textContent = message;
     element.dataset.state = state;
 };
 
-registerLink.addEventListener('click', ()=> {
+const ensureSupabase = () => {
+    if (!window.monitorSupabase) {
+        throw new Error(window.monitorSupabaseError || 'Could not connect to shared storage.');
+    }
+    return window.monitorSupabase;
+};
+
+const showPasswordResetForm = () => {
+    resetRequestFields.hidden = true;
+    resetPasswordFields.hidden = false;
+    resetEmail.required = false;
+    resetPassword.required = true;
+    confirmPassword.required = true;
+    resetSubmitButton.textContent = 'Update password';
+    wrapper.classList.remove('active');
+    wrapper.classList.add('reset-mode', 'active-popup');
+};
+
+registerLink.addEventListener('click', () => {
     loginFeedback.textContent = '';
     registerFeedback.textContent = '';
     wrapper.classList.add('active');
 });
 
-loginLink.addEventListener('click', ()=> {
+loginLink.addEventListener('click', () => {
     loginFeedback.textContent = '';
     registerFeedback.textContent = '';
     wrapper.classList.remove('active');
@@ -60,6 +61,12 @@ forgotPasswordLink.addEventListener('click', event => {
     resetFeedback.textContent = '';
     resetForm.reset();
     resetEmail.value = loginEmail.value.trim();
+    resetRequestFields.hidden = false;
+    resetPasswordFields.hidden = true;
+    resetEmail.required = true;
+    resetPassword.required = false;
+    confirmPassword.required = false;
+    resetSubmitButton.textContent = 'Send reset link';
     wrapper.classList.remove('active');
     wrapper.classList.add('reset-mode');
 });
@@ -70,7 +77,7 @@ resetLoginLink.addEventListener('click', event => {
     wrapper.classList.remove('reset-mode', 'active');
 });
 
-iconClose.addEventListener('click', ()=> {
+iconClose.addEventListener('click', () => {
     wrapper.classList.remove('active-popup');
 });
 
@@ -78,47 +85,34 @@ loginForm.addEventListener('submit', async event => {
     event.preventDefault();
     loginFeedback.textContent = '';
 
-    const email = loginEmail.value.trim().toLowerCase();
-    const password = loginPassword.value;
-
     try {
-        const passwordHash = await hashPassword(password);
-        let accounts = loadAccounts();
-        let account = accounts.find(savedAccount => savedAccount.email === email);
-
-        if (!account && email === adminEmail) {
-            if (password !== adminDefaultPassword) {
-                setAuthFeedback(loginFeedback, `Use the built-in admin password: ${adminDefaultPassword}`);
-                return;
-            }
-
-            account = {
-                username: 'Admin',
-                email,
-                passwordHash,
-                createdAt: new Date().toISOString()
-            };
-            accounts.push(account);
-            localStorage.setItem(accountStorageKey, JSON.stringify(accounts));
+        const supabase = ensureSupabase();
+        const email = loginEmail.value.trim().toLowerCase();
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email,
+            password: loginPassword.value
+        });
+        if (error) {
+            throw error;
         }
 
-        if (!account) {
-            setAuthFeedback(loginFeedback, 'No account found for this email. Register first.');
-            return;
-        }
-
-        if (passwordHash !== account.passwordHash) {
-            setAuthFeedback(loginFeedback, 'Incorrect password. Please try again.');
-            return;
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('username, role')
+            .eq('id', data.user.id)
+            .single();
+        if (profileError) {
+            throw profileError;
         }
 
         sessionStorage.setItem('monitor-current-user', JSON.stringify({
-            username: account.username,
-            email
+            username: profile.username,
+            email: data.user.email,
+            role: profile.role
         }));
-        window.location.assign(email === adminEmail ? 'admin.html' : 'app.html');
+        window.location.assign(profile.role === 'admin' ? 'admin.html' : 'app.html');
     } catch (error) {
-        setAuthFeedback(loginFeedback, error.message || 'Could not verify your login.');
+        setAuthFeedback(loginFeedback, error.message || 'Could not log in.');
     }
 });
 
@@ -130,23 +124,28 @@ registerForm.addEventListener('submit', async event => {
     const username = formData.get('username').trim();
     const email = formData.get('email').trim().toLowerCase();
     const password = formData.get('password');
-    const accounts = loadAccounts();
-
-    if (accounts.some(account => account.email === email)) {
-        setAuthFeedback(registerFeedback, 'An account with this email already exists. Log in instead.');
-        return;
-    }
 
     try {
-        const passwordHash = await hashPassword(password);
-        accounts.push({ username, email, passwordHash, createdAt: new Date().toISOString() });
-        localStorage.setItem(accountStorageKey, JSON.stringify(accounts));
+        const supabase = ensureSupabase();
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: { data: { username } }
+        });
+        if (error) {
+            throw error;
+        }
+
         registerForm.reset();
         wrapper.classList.remove('active');
         loginEmail.value = email;
-        setAuthFeedback(loginFeedback, 'Account created. You can log in now.', 'success');
+        if (data.session) {
+            setAuthFeedback(loginFeedback, 'Account created. You can log in now.', 'success');
+        } else {
+            setAuthFeedback(loginFeedback, 'Account created. Check your email to confirm it, then log in.', 'success');
+        }
     } catch (error) {
-        setAuthFeedback(registerFeedback, error.message || 'Could not save your account in this browser.');
+        setAuthFeedback(registerFeedback, error.message || 'Could not create your account.');
     }
 });
 
@@ -154,38 +153,51 @@ resetForm.addEventListener('submit', async event => {
     event.preventDefault();
     resetFeedback.textContent = '';
 
-    const formData = new FormData(resetForm);
-    const email = formData.get('email').trim().toLowerCase();
-    const password = formData.get('password');
-    const confirmPassword = formData.get('confirmPassword');
-    const accounts = loadAccounts();
-    const accountIndex = accounts.findIndex(account => account.email === email);
-
-    if (accountIndex === -1) {
-        setAuthFeedback(resetFeedback, 'No account found for this email.');
-        return;
-    }
-
-    if (password !== confirmPassword) {
-        setAuthFeedback(resetFeedback, 'The passwords do not match.');
-        return;
-    }
-
     try {
-        accounts[accountIndex].passwordHash = await hashPassword(password);
-        localStorage.setItem(accountStorageKey, JSON.stringify(accounts));
+        const supabase = ensureSupabase();
+        if (resetPasswordFields.hidden) {
+            const { error } = await supabase.auth.resetPasswordForEmail(
+                resetEmail.value.trim().toLowerCase(),
+                { redirectTo: `${window.location.origin}${window.location.pathname}` }
+            );
+            if (error) {
+                throw error;
+            }
+            setAuthFeedback(resetFeedback, 'If an account exists, a password reset link has been sent.', 'success');
+            return;
+        }
+
+        if (resetPassword.value !== confirmPassword.value) {
+            throw new Error('The passwords do not match.');
+        }
+
+        const { error } = await supabase.auth.updateUser({ password: resetPassword.value });
+        if (error) {
+            throw error;
+        }
+
         resetForm.reset();
-        loginEmail.value = email;
-        loginPassword.value = '';
+        resetRequestFields.hidden = false;
+        resetPasswordFields.hidden = true;
+        resetEmail.required = true;
+        resetPassword.required = false;
+        confirmPassword.required = false;
+        resetSubmitButton.textContent = 'Send reset link';
         wrapper.classList.remove('reset-mode', 'active');
         setAuthFeedback(loginFeedback, 'Password updated. Log in with your new password.', 'success');
     } catch (error) {
-        setAuthFeedback(resetFeedback, error.message || 'Could not update your password.');
+        setAuthFeedback(resetFeedback, error.message || 'Could not reset your password.');
     }
 });
 
 btnPopup.addEventListener('click', () => {
     wrapper.classList.add('active-popup');
+});
+
+window.monitorSupabase?.auth.onAuthStateChange(event => {
+    if (event === 'PASSWORD_RECOVERY') {
+        showPasswordResetForm();
+    }
 });
 
 document.querySelectorAll('.toggle-password').forEach(toggle => {
@@ -200,9 +212,9 @@ document.querySelectorAll('.toggle-password').forEach(toggle => {
     };
 
     toggle.addEventListener('click', togglePassword);
-    toggle.addEventListener('keydown', e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
+    toggle.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
             togglePassword();
         }
     });
